@@ -1,0 +1,470 @@
+// Prisma Schema for Pédja Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+enum UserRole {
+  STUDENT
+  ADMIN
+  MODERATOR
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+model User {
+  id        String        @id @default(uuid())
+  email     String        @unique
+  phone     String?       @unique
+  password  String        // bcrypt hashed
+  firstName String
+  lastName  String
+  avatar    String?
+  role      UserRole      @default(STUDENT)
+  status    AccountStatus @default(ACTIVE)
+
+  // Email/Phone verification
+  isEmailVerified Boolean @default(false)
+  isPhoneVerified Boolean @default(false)
+
+  // Onboarding
+  onboardingCompleted Boolean @default(false)
+  preferredExamType   String?
+  preferredSubjects   String[] // JSON array of subjects
+
+  // Gamification
+  points     Int @default(0)
+  level      Int @default(1)
+  streak     Int @default(0)
+  lastActive DateTime?
+
+  // Relations
+  subscription   Subscription?
+  quizAttempts   QuizAttempt[]
+  progress       Progress[]
+  achievements   UserAchievement[]
+  notifications  Notification[]
+  studySessions  StudySession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([phone])
+  @@map("users")
+}
+
+// ============================================
+// SUBSCRIPTION & PAYMENT
+// ============================================
+
+enum SubscriptionPlan {
+  FREE
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+model Subscription {
+  id        String             @id @default(uuid())
+  userId    String             @unique
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  plan      SubscriptionPlan   @default(FREE)
+  status    SubscriptionStatus @default(ACTIVE)
+
+  startDate DateTime           @default(now())
+  endDate   DateTime?
+  autoRenew Boolean            @default(false)
+
+  // Payment
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  MTN_MONEY
+  MOOV_MONEY
+  ORANGE_MONEY
+  STRIPE
+  PAYPAL
+}
+
+model Transaction {
+  id             String            @id @default(uuid())
+  subscriptionId String
+  subscription   Subscription      @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  amount         Float
+  currency       String            @default("XOF") // West African CFA franc
+
+  provider       PaymentProvider
+  transactionId  String?           @unique // External transaction ID
+  phoneNumber    String?
+
+  status         TransactionStatus @default(PENDING)
+  failureReason  String?
+
+  metadata       Json?             // Additional payment data
+
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([subscriptionId])
+  @@index([transactionId])
+  @@index([status])
+  @@map("transactions")
+}
+
+// ============================================
+// EXAMS & QUESTIONS
+// ============================================
+
+enum ExamType {
+  BAC
+  BEPC
+  CEP
+  LICENCE
+  MASTER
+  CONCOURS
+  OTHER
+}
+
+enum DifficultyLevel {
+  EASY
+  MEDIUM
+  HARD
+  EXPERT
+}
+
+model Exam {
+  id          String          @id @default(uuid())
+  title       String
+  type        ExamType
+  year        Int?
+  subject     String
+  description String?
+
+  // File storage
+  pdfUrl      String?
+  thumbnailUrl String?
+
+  difficulty  DifficultyLevel @default(MEDIUM)
+  duration    Int?            // in minutes
+
+  // Stats
+  totalQuestions Int @default(0)
+  downloadCount  Int @default(0)
+  viewCount      Int @default(0)
+
+  // Relations
+  questions   Question[]
+
+  // Metadata
+  tags        String[]
+  isPublished Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([type])
+  @@index([subject])
+  @@index([year])
+  @@map("exams")
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  ESSAY
+}
+
+model Question {
+  id         String       @id @default(uuid())
+  examId     String
+  exam       Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  content    String       @db.Text
+  type       QuestionType @default(MULTIPLE_CHOICE)
+
+  // For MCQ
+  options    Json?        // Array of options: [{id: 'A', text: '...', isCorrect: false}]
+
+  // Correct answer(s)
+  correctAnswer String?   @db.Text // Can be JSON for multiple correct answers
+
+  explanation   String?   @db.Text
+  difficulty    DifficultyLevel @default(MEDIUM)
+
+  // Media
+  imageUrl      String?
+
+  // Stats
+  timesAnswered Int @default(0)
+  timesCorrect  Int @default(0)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([examId])
+  @@index([difficulty])
+  @@map("questions")
+}
+
+// ============================================
+// QUIZ SYSTEM
+// ============================================
+
+enum QuizMode {
+  PRACTICE      // No time limit
+  TIMED         // With time limit
+  COMPETITIVE   // Ranked/Leaderboard
+  ADAPTIVE      // Difficulty adjusts
+}
+
+model Quiz {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  subject     String
+
+  mode        QuizMode  @default(PRACTICE)
+  timeLimit   Int?      // in seconds
+  passingScore Float?   // percentage
+
+  // Question selection
+  questionIds String[]  // Array of Question IDs
+  totalQuestions Int
+
+  difficulty  DifficultyLevel @default(MEDIUM)
+
+  // Stats
+  totalAttempts Int @default(0)
+  averageScore  Float?
+
+  isPublished Boolean  @default(true)
+
+  // Relations
+  attempts    QuizAttempt[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([subject])
+  @@index([mode])
+  @@map("quizzes")
+}
+
+model QuizAttempt {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  quizId    String
+  quiz      Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  // Results
+  score     Float    // percentage
+  totalQuestions Int
+  correctAnswers Int
+  wrongAnswers   Int
+  skippedQuestions Int @default(0)
+
+  // Timing
+  timeSpent Int      // in seconds
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+
+  // Answers
+  answers   Json     // Array: [{questionId, userAnswer, isCorrect, timeSpent}]
+
+  // Metadata
+  isPassed  Boolean  @default(false)
+  rank      Int?     // For competitive mode
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([quizId])
+  @@index([score])
+  @@map("quiz_attempts")
+}
+
+// ============================================
+// PROGRESS TRACKING
+// ============================================
+
+model Progress {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  subject   String   // e.g., "Mathematics", "Physics"
+  examType  ExamType
+
+  // Stats
+  totalQuizzes    Int   @default(0)
+  totalQuestions  Int   @default(0)
+  correctAnswers  Int   @default(0)
+  averageScore    Float @default(0)
+
+  // Time tracking
+  totalTimeSpent  Int   @default(0) // in seconds
+
+  // Streak
+  currentStreak   Int   @default(0)
+  longestStreak   Int   @default(0)
+  lastStudyDate   DateTime?
+
+  // Weak areas (JSON of topics with low scores)
+  weakAreas       Json?
+  strongAreas     Json?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, subject, examType])
+  @@index([userId])
+  @@map("progress")
+}
+
+// ============================================
+// GAMIFICATION
+// ============================================
+
+enum AchievementType {
+  STREAK
+  SCORE
+  QUIZ_COUNT
+  TIME_SPENT
+  PERFECT_SCORE
+  MILESTONE
+}
+
+model Achievement {
+  id          String          @id @default(uuid())
+  name        String
+  description String
+  type        AchievementType
+
+  iconUrl     String?
+
+  // Unlock criteria
+  requirement Json            // e.g., {type: "streak", value: 7}
+  points      Int             @default(0)
+
+  // Relations
+  users       UserAchievement[]
+
+  createdAt   DateTime        @default(now())
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  unlockedAt    DateTime    @default(now())
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@map("user_achievements")
+}
+
+// ============================================
+// STUDY SESSIONS
+// ============================================
+
+model StudySession {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  subject   String
+  examType  ExamType
+
+  startTime DateTime @default(now())
+  endTime   DateTime?
+  duration  Int?     // in seconds
+
+  // Activities
+  quizzesCompleted Int @default(0)
+  questionsAnswered Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("study_sessions")
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+enum NotificationType {
+  SYSTEM
+  SUBSCRIPTION
+  ACHIEVEMENT
+  REMINDER
+  SOCIAL
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+
+  isRead    Boolean          @default(false)
+
+  // Optional link
+  actionUrl String?
+
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
