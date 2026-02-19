@@ -1,5 +1,3 @@
-// Prisma Schema for Pédja Platform
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,9 +7,313 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============================================
-// USER MANAGEMENT
-// ============================================
+model User {
+  id                  String            @id @default(uuid())
+  email               String            @unique
+  phone               String?           @unique
+  password            String
+  firstName           String
+  lastName            String
+  avatar              String?
+  role                UserRole          @default(STUDENT)
+  status              AccountStatus     @default(ACTIVE)
+  isEmailVerified     Boolean           @default(false)
+  isPhoneVerified     Boolean           @default(false)
+  onboardingCompleted Boolean           @default(false)
+  preferredExamType   String?
+  preferredSubjects   String[]
+  points              Int               @default(0)
+  level               Int               @default(1)
+  streak              Int               @default(0)
+  lastActive          DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  notifications       Notification[]
+  progress            Progress[]
+  promoUsages         PromoCodeUsage[]  @relation("PromoSubscriber")
+  promoCodes          PromoCode[]       @relation("PromoCodeOwner")
+  quizAttempts        QuizAttempt[]
+  studySessions       StudySession[]
+  subscription        Subscription?
+  achievements        UserAchievement[]
+
+  @@index([email])
+  @@index([phone])
+  @@map("users")
+}
+
+model Subscription {
+  id           String             @id @default(uuid())
+  userId       String             @unique
+  plan         SubscriptionPlan   @default(FREE)
+  status       SubscriptionStatus @default(ACTIVE)
+  startDate    DateTime           @default(now())
+  endDate      DateTime?
+  autoRenew    Boolean            @default(false)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model Transaction {
+  id             String            @id @default(uuid())
+  subscriptionId String
+  amount         Float
+  currency       String            @default("XOF")
+  provider       PaymentProvider
+  transactionId  String?           @unique
+  phoneNumber    String?
+  status         TransactionStatus @default(PENDING)
+  failureReason  String?
+  metadata       Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  promoCodeUsage PromoCodeUsage?
+  subscription   Subscription      @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([transactionId])
+  @@index([status])
+  @@map("transactions")
+}
+
+model PromoCode {
+  id        String           @id @default(uuid())
+  code      String           @unique
+  ownerId   String
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  usages    PromoCodeUsage[]
+  owner     User             @relation("PromoCodeOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+  @@map("promo_codes")
+}
+
+model PromoCodeUsage {
+  id               String         @id @default(uuid())
+  promoCodeId      String
+  subscriberId     String
+  transactionId    String         @unique
+  commissionAmount Float
+  type             CommissionType
+  createdAt        DateTime       @default(now())
+  promoCode        PromoCode      @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  subscriber       User           @relation("PromoSubscriber", fields: [subscriberId], references: [id], onDelete: Cascade)
+  transaction      Transaction    @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([promoCodeId])
+  @@index([subscriberId])
+  @@map("promo_code_usages")
+}
+
+model Exam {
+  id             String          @id @default(uuid())
+  title          String
+  type           String
+  year           Int?
+  subject        String
+  description    String?
+  pdfUrl         String?
+  thumbnailUrl   String?
+  difficulty     DifficultyLevel @default(MEDIUM)
+  duration       Int?
+  totalQuestions Int             @default(0)
+  downloadCount  Int             @default(0)
+  viewCount      Int             @default(0)
+  tags           String[]
+  isPublished    Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  faculty        String?
+  university     String?         @default("NONE")
+  series         String?
+  niveau         String?
+  questions      Question[]
+
+  @@index([type])
+  @@index([subject])
+  @@index([year])
+  @@index([series])
+  @@index([university])
+  @@index([faculty])
+  @@map("exams")
+}
+
+model Question {
+  id            String          @id @default(uuid())
+  examId        String
+  content       String
+  type          QuestionType    @default(MULTIPLE_CHOICE)
+  options       Json?
+  correctAnswer String?
+  explanation   String?
+  difficulty    DifficultyLevel @default(MEDIUM)
+  imageUrl      String?
+  timesAnswered Int             @default(0)
+  timesCorrect  Int             @default(0)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  exam          Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@index([examId])
+  @@index([difficulty])
+  @@map("questions")
+}
+
+model Quiz {
+  id             String          @id @default(uuid())
+  title          String
+  description    String?
+  subject        String
+  mode           QuizMode        @default(PRACTICE)
+  timeLimit      Int?
+  passingScore   Float?
+  questionIds    String[]
+  totalQuestions Int
+  difficulty     DifficultyLevel @default(MEDIUM)
+  totalAttempts  Int             @default(0)
+  averageScore   Float?
+  isPublished    Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  attempts       QuizAttempt[]
+
+  @@index([subject])
+  @@index([mode])
+  @@map("quizzes")
+}
+
+model QuizAttempt {
+  id               String    @id @default(uuid())
+  userId           String
+  quizId           String
+  score            Float
+  totalQuestions   Int
+  correctAnswers   Int
+  wrongAnswers     Int
+  skippedQuestions Int       @default(0)
+  timeSpent        Int
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  answers          Json
+  isPassed         Boolean   @default(false)
+  rank             Int?
+  createdAt        DateTime  @default(now())
+  quiz             Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([quizId])
+  @@index([score])
+  @@map("quiz_attempts")
+}
+
+model Progress {
+  id             String    @id @default(uuid())
+  userId         String
+  subject        String
+  examType       String
+  totalQuizzes   Int       @default(0)
+  totalQuestions Int       @default(0)
+  correctAnswers Int       @default(0)
+  averageScore   Float     @default(0)
+  totalTimeSpent Int       @default(0)
+  currentStreak  Int       @default(0)
+  longestStreak  Int       @default(0)
+  lastStudyDate  DateTime?
+  weakAreas      Json?
+  strongAreas    Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, subject, examType])
+  @@index([userId])
+  @@map("progress")
+}
+
+model Achievement {
+  id          String            @id @default(uuid())
+  name        String
+  description String
+  type        AchievementType
+  iconUrl     String?
+  requirement Json
+  points      Int               @default(0)
+  createdAt   DateTime          @default(now())
+  users       UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid())
+  userId        String
+  achievementId String
+  unlockedAt    DateTime    @default(now())
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@map("user_achievements")
+}
+
+model StudySession {
+  id                String    @id @default(uuid())
+  userId            String
+  subject           String
+  examType          String
+  startTime         DateTime  @default(now())
+  endTime           DateTime?
+  duration          Int?
+  quizzesCompleted  Int       @default(0)
+  questionsAnswered Int       @default(0)
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("study_sessions")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  actionUrl String?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+model ExamConfig {
+  id          String   @id @default(uuid())
+  category    String
+  value       String
+  label       String
+  description String?
+  extra       Json?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([category, value])
+  @@index([category])
+  @@map("exam_configs")
+}
 
 enum UserRole {
   STUDENT
@@ -24,52 +326,6 @@ enum AccountStatus {
   SUSPENDED
   DELETED
 }
-
-model User {
-  id        String        @id @default(uuid())
-  email     String        @unique
-  phone     String?       @unique
-  password  String        // bcrypt hashed
-  firstName String
-  lastName  String
-  avatar    String?
-  role      UserRole      @default(STUDENT)
-  status    AccountStatus @default(ACTIVE)
-
-  // Email/Phone verification
-  isEmailVerified Boolean @default(false)
-  isPhoneVerified Boolean @default(false)
-
-  // Onboarding
-  onboardingCompleted Boolean @default(false)
-  preferredExamType   String?
-  preferredSubjects   String[] // JSON array of subjects
-
-  // Gamification
-  points     Int @default(0)
-  level      Int @default(1)
-  streak     Int @default(0)
-  lastActive DateTime?
-
-  // Relations
-  subscription   Subscription?
-  quizAttempts   QuizAttempt[]
-  progress       Progress[]
-  achievements   UserAchievement[]
-  notifications  Notification[]
-  studySessions  StudySession[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([email])
-  @@index([phone])
-  @@map("users")
-}
-
-// ============================================
-// SUBSCRIPTION & PAYMENT
-// ============================================
 
 enum SubscriptionPlan {
   FREE
@@ -85,29 +341,6 @@ enum SubscriptionStatus {
   PENDING
 }
 
-model Subscription {
-  id        String             @id @default(uuid())
-  userId    String             @unique
-  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  plan      SubscriptionPlan   @default(FREE)
-  status    SubscriptionStatus @default(ACTIVE)
-
-  startDate DateTime           @default(now())
-  endDate   DateTime?
-  autoRenew Boolean            @default(false)
-
-  // Payment
-  transactions Transaction[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([status])
-  @@map("subscriptions")
-}
-
 enum TransactionStatus {
   PENDING
   COMPLETED
@@ -121,46 +354,12 @@ enum PaymentProvider {
   ORANGE_MONEY
   STRIPE
   PAYPAL
+  WAVE
 }
 
-model Transaction {
-  id             String            @id @default(uuid())
-  subscriptionId String
-  subscription   Subscription      @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-
-  amount         Float
-  currency       String            @default("XOF") // West African CFA franc
-
-  provider       PaymentProvider
-  transactionId  String?           @unique // External transaction ID
-  phoneNumber    String?
-
-  status         TransactionStatus @default(PENDING)
-  failureReason  String?
-
-  metadata       Json?             // Additional payment data
-
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-
-  @@index([subscriptionId])
-  @@index([transactionId])
-  @@index([status])
-  @@map("transactions")
-}
-
-// ============================================
-// EXAMS & QUESTIONS
-// ============================================
-
-enum ExamType {
-  BAC
-  BEPC
-  CEP
-  LICENCE
-  MASTER
-  CONCOURS
-  OTHER
+enum CommissionType {
+  FIRST_TIME
+  RENEWAL
 }
 
 enum DifficultyLevel {
@@ -170,42 +369,6 @@ enum DifficultyLevel {
   EXPERT
 }
 
-model Exam {
-  id          String          @id @default(uuid())
-  title       String
-  type        ExamType
-  year        Int?
-  subject     String
-  description String?
-
-  // File storage
-  pdfUrl      String?
-  thumbnailUrl String?
-
-  difficulty  DifficultyLevel @default(MEDIUM)
-  duration    Int?            // in minutes
-
-  // Stats
-  totalQuestions Int @default(0)
-  downloadCount  Int @default(0)
-  viewCount      Int @default(0)
-
-  // Relations
-  questions   Question[]
-
-  // Metadata
-  tags        String[]
-  isPublished Boolean  @default(true)
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([type])
-  @@index([subject])
-  @@index([year])
-  @@map("exams")
-}
-
 enum QuestionType {
   MULTIPLE_CHOICE
   TRUE_FALSE
@@ -213,158 +376,12 @@ enum QuestionType {
   ESSAY
 }
 
-model Question {
-  id         String       @id @default(uuid())
-  examId     String
-  exam       Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
-
-  content    String       @db.Text
-  type       QuestionType @default(MULTIPLE_CHOICE)
-
-  // For MCQ
-  options    Json?        // Array of options: [{id: 'A', text: '...', isCorrect: false}]
-
-  // Correct answer(s)
-  correctAnswer String?   @db.Text // Can be JSON for multiple correct answers
-
-  explanation   String?   @db.Text
-  difficulty    DifficultyLevel @default(MEDIUM)
-
-  // Media
-  imageUrl      String?
-
-  // Stats
-  timesAnswered Int @default(0)
-  timesCorrect  Int @default(0)
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([examId])
-  @@index([difficulty])
-  @@map("questions")
-}
-
-// ============================================
-// QUIZ SYSTEM
-// ============================================
-
 enum QuizMode {
-  PRACTICE      // No time limit
-  TIMED         // With time limit
-  COMPETITIVE   // Ranked/Leaderboard
-  ADAPTIVE      // Difficulty adjusts
+  PRACTICE
+  TIMED
+  COMPETITIVE
+  ADAPTIVE
 }
-
-model Quiz {
-  id          String    @id @default(uuid())
-  title       String
-  description String?
-  subject     String
-
-  mode        QuizMode  @default(PRACTICE)
-  timeLimit   Int?      // in seconds
-  passingScore Float?   // percentage
-
-  // Question selection
-  questionIds String[]  // Array of Question IDs
-  totalQuestions Int
-
-  difficulty  DifficultyLevel @default(MEDIUM)
-
-  // Stats
-  totalAttempts Int @default(0)
-  averageScore  Float?
-
-  isPublished Boolean  @default(true)
-
-  // Relations
-  attempts    QuizAttempt[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([subject])
-  @@index([mode])
-  @@map("quizzes")
-}
-
-model QuizAttempt {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  quizId    String
-  quiz      Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
-
-  // Results
-  score     Float    // percentage
-  totalQuestions Int
-  correctAnswers Int
-  wrongAnswers   Int
-  skippedQuestions Int @default(0)
-
-  // Timing
-  timeSpent Int      // in seconds
-  startedAt DateTime @default(now())
-  completedAt DateTime?
-
-  // Answers
-  answers   Json     // Array: [{questionId, userAnswer, isCorrect, timeSpent}]
-
-  // Metadata
-  isPassed  Boolean  @default(false)
-  rank      Int?     // For competitive mode
-
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([quizId])
-  @@index([score])
-  @@map("quiz_attempts")
-}
-
-// ============================================
-// PROGRESS TRACKING
-// ============================================
-
-model Progress {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  subject   String   // e.g., "Mathematics", "Physics"
-  examType  ExamType
-
-  // Stats
-  totalQuizzes    Int   @default(0)
-  totalQuestions  Int   @default(0)
-  correctAnswers  Int   @default(0)
-  averageScore    Float @default(0)
-
-  // Time tracking
-  totalTimeSpent  Int   @default(0) // in seconds
-
-  // Streak
-  currentStreak   Int   @default(0)
-  longestStreak   Int   @default(0)
-  lastStudyDate   DateTime?
-
-  // Weak areas (JSON of topics with low scores)
-  weakAreas       Json?
-  strongAreas     Json?
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@unique([userId, subject, examType])
-  @@index([userId])
-  @@map("progress")
-}
-
-// ============================================
-// GAMIFICATION
-// ============================================
 
 enum AchievementType {
   STREAK
@@ -375,96 +392,10 @@ enum AchievementType {
   MILESTONE
 }
 
-model Achievement {
-  id          String          @id @default(uuid())
-  name        String
-  description String
-  type        AchievementType
-
-  iconUrl     String?
-
-  // Unlock criteria
-  requirement Json            // e.g., {type: "streak", value: 7}
-  points      Int             @default(0)
-
-  // Relations
-  users       UserAchievement[]
-
-  createdAt   DateTime        @default(now())
-
-  @@map("achievements")
-}
-
-model UserAchievement {
-  id            String      @id @default(uuid())
-  userId        String
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  achievementId String
-  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
-
-  unlockedAt    DateTime    @default(now())
-
-  @@unique([userId, achievementId])
-  @@index([userId])
-  @@map("user_achievements")
-}
-
-// ============================================
-// STUDY SESSIONS
-// ============================================
-
-model StudySession {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  subject   String
-  examType  ExamType
-
-  startTime DateTime @default(now())
-  endTime   DateTime?
-  duration  Int?     // in seconds
-
-  // Activities
-  quizzesCompleted Int @default(0)
-  questionsAnswered Int @default(0)
-
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@map("study_sessions")
-}
-
-// ============================================
-// NOTIFICATIONS
-// ============================================
-
 enum NotificationType {
   SYSTEM
   SUBSCRIPTION
   ACHIEVEMENT
   REMINDER
   SOCIAL
-}
-
-model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  type      NotificationType
-  title     String
-  message   String           @db.Text
-
-  isRead    Boolean          @default(false)
-
-  // Optional link
-  actionUrl String?
-
-  createdAt DateTime         @default(now())
-
-  @@index([userId])
-  @@index([isRead])
-  @@map("notifications")
 }

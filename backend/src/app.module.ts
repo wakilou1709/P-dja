@@ -6,6 +6,10 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ExamsModule } from './modules/exams/exams.module';
 import { HealthModule } from './modules/health/health.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { SubscriptionModule } from './modules/subscription/subscription.module';
+import { PromoModule } from './modules/promo/promo.module';
+import { QuizModule } from './modules/quiz/quiz.module';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 
@@ -34,6 +38,10 @@ import { validationSchema } from './config/validation.schema';
     UsersModule,
     ExamsModule,
     HealthModule,
+    AdminModule,
+    SubscriptionModule,
+    PromoModule,
+    QuizModule,
   ],
 })
 export class AppModule {}

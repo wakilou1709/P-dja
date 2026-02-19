@@ -26,9 +26,11 @@ export class RegisterDto {
   @MaxLength(50)
   lastName: string;
 
-  @ApiProperty({ example: '+22997000000', required: false })
+  @ApiProperty({ example: '70123456 ou +22670123456', required: false })
   @IsOptional()
   @IsString()
-  @Matches(/^\+[1-9]\d{1,14}$/, { message: 'Numéro de téléphone invalide (format: +22997000000)' })
+  @Matches(/^(\+226)?[0-9]{8}$/, {
+    message: 'Numéro de téléphone invalide. Format attendu : 8 chiffres (ex: 70123456) ou avec indicatif (+22670123456)'
+  })
   phone?: string;
 }

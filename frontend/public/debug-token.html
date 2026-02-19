@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Debug Token</title>
+  <style>
+    body {
+      font-family: monospace;
+      padding: 20px;
+      background: #0f172a;
+      color: #fff;
+    }
+    .section {
+      background: #1e293b;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 8px;
+      border: 1px solid #334155;
+    }
+    .error { color: #ef4444; }
+    .success { color: #10b981; }
+    .warning { color: #f59e0b; }
+    button {
+      background: #8b5cf6;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin: 5px;
+    }
+    button:hover {
+      background: #7c3aed;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 Pédja - Debug Token</h1>
+
+  <div class="section">
+    <h2>Token Information</h2>
+    <div id="token-info"></div>
+  </div>
+
+  <div class="section">
+    <h2>Actions</h2>
+    <button onclick="clearAndRedirect()">Déconnexion Forcée</button>
+    <button onclick="testAdminAPI()">Test Admin API</button>
+  </div>
+
+  <div class="section">
+    <h2>Résultats API</h2>
+    <div id="api-results"></div>
+  </div>
+
+  <script>
+    function decodeToken(token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        return payload;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function displayTokenInfo() {
+      const tokenInfo = document.getElementById('token-info');
+      const token = localStorage.getItem('accessToken');
+
+      if (!token) {
+        tokenInfo.innerHTML = '<p class="error">❌ Aucun token trouvé dans localStorage</p>';
+        return;
+      }
+
+      const payload = decodeToken(token);
+      if (!payload) {
+        tokenInfo.innerHTML = '<p class="error">❌ Token invalide</p>';
+        return;
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      const isExpired = payload.exp < now;
+      const expiresIn = payload.exp - now;
+      const isAdmin = payload.role === 'ADMIN';
+
+      let html = '<ul>';
+      html += `<li><strong>Email:</strong> ${payload.email}</li>`;
+      html += `<li><strong>Rôle:</strong> <span class="${isAdmin ? 'success' : 'error'}">${payload.role}</span> ${isAdmin ? '✅' : '❌ Pas admin!'}</li>`;
+      html += `<li><strong>User ID:</strong> ${payload.sub}</li>`;
+      html += `<li><strong>Expiration:</strong> <span class="${isExpired ? 'error' : 'success'}">${isExpired ? 'EXPIRÉ ❌' : `${Math.floor(expiresIn / 60)} minutes restantes ✅`}</span></li>`;
+      html += `<li><strong>Émis à:</strong> ${new Date(payload.iat * 1000).toLocaleString('fr-FR')}</li>`;
+      html += `<li><strong>Expire à:</strong> ${new Date(payload.exp * 1000).toLocaleString('fr-FR')}</li>`;
+      html += '</ul>';
+
+      if (isExpired || !isAdmin) {
+        html += '<p class="warning">⚠️ Vous devez vous reconnecter!</p>';
+      } else {
+        html += '<p class="success">✅ Token valide</p>';
+      }
+
+      tokenInfo.innerHTML = html;
+    }
+
+    function clearAndRedirect() {
+      if (confirm('Êtes-vous sûr de vouloir vous déconnecter?')) {
+        localStorage.clear();
+        window.location.href = '/login';
+      }
+    }
+
+    async function testAdminAPI() {
+      const results = document.getElementById('api-results');
+      results.innerHTML = '<p class="warning">⏳ Test en cours...</p>';
+
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        results.innerHTML = '<p class="error">❌ Pas de token</p>';
+        return;
+      }
+
+      try {
+        const response = await fetch('http://localhost:4000/api/admin/users/stats', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          results.innerHTML = `
+            <p class="success">✅ API Admin fonctionne!</p>
+            <pre>${JSON.stringify(data, null, 2)}</pre>
+          `;
+        } else {
+          results.innerHTML = `
+            <p class="error">❌ Erreur ${response.status}: ${response.statusText}</p>
+            <p>Vous devez vous reconnecter avec un compte admin.</p>
+          `;
+        }
+      } catch (error) {
+        results.innerHTML = `<p class="error">❌ Erreur: ${error.message}</p>`;
+      }
+    }
+
+    // Display token info on load
+    displayTokenInfo();
+  </script>
+</body>
+</html>

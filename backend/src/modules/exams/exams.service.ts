@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateExamDto } from './dto/create-exam.dto';
-import { ExamType, DifficultyLevel } from '@prisma/client';
+import { DifficultyLevel } from '@prisma/client';
 
 @Injectable()
 export class ExamsService {
@@ -14,10 +14,13 @@ export class ExamsService {
   }
 
   async findAll(filters?: {
-    type?: ExamType;
+    type?: string;
     subject?: string;
     year?: number;
     difficulty?: DifficultyLevel;
+    university?: string;
+    faculty?: string;
+    series?: string;
     search?: string;
   }) {
     const where: any = {};
@@ -36,6 +39,18 @@ export class ExamsService {
 
     if (filters?.difficulty) {
       where.difficulty = filters.difficulty;
+    }
+
+    if (filters?.university) {
+      where.university = filters.university;
+    }
+
+    if (filters?.faculty) {
+      where.faculty = { contains: filters.faculty, mode: 'insensitive' };
+    }
+
+    if (filters?.series) {
+      where.series = filters.series;
     }
 
     if (filters?.search) {
@@ -100,5 +115,54 @@ export class ExamsService {
     });
 
     return exams.map((e) => e.year);
+  }
+
+  async getUniversities() {
+    const exams = await this.prisma.exam.findMany({
+      select: { university: true },
+      where: { university: { not: 'NONE' } },
+      distinct: ['university'],
+    });
+
+    return exams.map((e) => e.university).sort();
+  }
+
+  async getFaculties(university?: string) {
+    const where: any = { faculty: { not: null } };
+
+    if (university) {
+      where.university = university;
+    }
+
+    const exams = await this.prisma.exam.findMany({
+      select: { faculty: true, university: true },
+      where,
+      distinct: ['faculty'],
+    });
+
+    return exams.map((e) => ({ university: e.university, faculty: e.faculty }));
+  }
+
+  async getExamHierarchy() {
+    // Get national exams grouped by type
+    const nationalExams = await this.prisma.exam.groupBy({
+      by: ['type', 'year'],
+      where: { university: 'NONE' },
+      _count: { id: true },
+      orderBy: [{ type: 'asc' }, { year: 'desc' }],
+    });
+
+    // Get university exams grouped by university and faculty
+    const universityExams = await this.prisma.exam.groupBy({
+      by: ['university', 'faculty', 'year'],
+      where: { university: { not: 'NONE' } },
+      _count: { id: true },
+      orderBy: [{ university: 'asc' }, { faculty: 'asc' }, { year: 'desc' }],
+    });
+
+    return {
+      nationalExams,
+      universityExams,
+    };
   }
 }

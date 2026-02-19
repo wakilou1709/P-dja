@@ -1,15 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsString, IsEnum, IsOptional, IsNumber, IsArray } from 'class-validator';
-import { ExamType, DifficultyLevel } from '@prisma/client';
+import { DifficultyLevel } from '@prisma/client';
 
 export class CreateExamDto {
   @ApiProperty()
   @IsString()
   title: string;
 
-  @ApiProperty({ enum: ExamType })
-  @IsEnum(ExamType)
-  type: ExamType;
+  @ApiProperty()
+  @IsString()
+  type: string;
 
   @ApiProperty({ required: false })
   @IsOptional()

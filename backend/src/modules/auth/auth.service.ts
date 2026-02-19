@@ -16,10 +16,13 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto): Promise<TokensDto> {
+    // Normalize phone number (add +226 if not present)
+    const normalizedPhone = dto.phone ? this.normalizePhone(dto.phone) : undefined;
+
     // Check if user already exists
     const existingUser = await this.prisma.user.findFirst({
       where: {
-        OR: [{ email: dto.email }, dto.phone ? { phone: dto.phone } : {}],
+        OR: [{ email: dto.email }, normalizedPhone ? { phone: normalizedPhone } : {}],
       },
     });
 
@@ -37,7 +40,7 @@ export class AuthService {
         password: hashedPassword,
         firstName: dto.firstName,
         lastName: dto.lastName,
-        phone: dto.phone,
+        phone: normalizedPhone,
       },
     });
 
@@ -161,5 +164,26 @@ export class AuthService {
       accessToken,
       refreshToken,
     };
+  }
+
+  /**
+   * Normalise les numéros de téléphone burkinabés
+   * Ajoute +226 si le numéro ne commence pas par +
+   */
+  private normalizePhone(phone: string): string {
+    if (!phone) return phone;
+
+    // Si le numéro commence déjà par +226, le retourner tel quel
+    if (phone.startsWith('+226')) {
+      return phone;
+    }
+
+    // Si le numéro commence par +, le retourner tel quel (autre pays)
+    if (phone.startsWith('+')) {
+      return phone;
+    }
+
+    // Sinon, ajouter +226 (Burkina Faso)
+    return `+226${phone}`;
   }
 }

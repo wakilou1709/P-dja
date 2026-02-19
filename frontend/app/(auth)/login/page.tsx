@@ -6,21 +6,18 @@ import { useRouter } from 'next/navigation';
 import { authApi } from '@/lib/api';
 import { saveTokens } from '@/lib/auth';
 import { ROUTES } from '@/lib/constants';
+import { Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-  });
+  const [formData, setFormData] = useState({ email: '', password: '' });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-
     try {
       const data = await authApi.login(formData);
       saveTokens(data.accessToken, data.refreshToken);
@@ -33,58 +30,84 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="bg-slate-800/50 backdrop-blur rounded-2xl p-8 border border-purple-500/20">
-      <h1 className="text-3xl font-bold text-white mb-2">Connexion</h1>
-      <p className="text-gray-400 mb-6">Accède à ton compte Pédja</p>
+    <div className="neo-card p-8 animate-fade-up">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="inline-flex items-center gap-2 neo-badge mb-4">
+          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse-glow" />
+          Authentification
+        </div>
+        <h1 className="text-3xl font-bold text-white mb-2">Connexion</h1>
+        <p className="text-slate-400 text-sm">Accède à ton espace d'apprentissage</p>
+      </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400 text-sm">
-          {error}
+        <div className="mb-6 p-3 rounded-xl flex items-center gap-3 bg-red-500/8 border border-red-500/20">
+          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          <span className="text-red-400 text-sm">{error}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-5">
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Email
+          <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+            Adresse email
           </label>
-          <input
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="ton@email.com"
-            required
-          />
+          <div className="relative">
+            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-purple-400/60" />
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="neo-input w-full pl-10 pr-4 py-3 text-sm"
+              placeholder="ton@email.com"
+              required
+            />
+          </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
+          <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
             Mot de passe
           </label>
-          <input
-            type="password"
-            value={formData.password}
-            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-            className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="••••••••"
-            required
-          />
+          <div className="relative">
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-purple-400/60" />
+            <input
+              type="password"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              className="neo-input w-full pl-10 pr-4 py-3 text-sm"
+              placeholder="••••••••"
+              required
+            />
+          </div>
         </div>
 
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-sm mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'Connexion...' : 'Se connecter'}
+          {loading ? (
+            <>
+              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Connexion...
+            </>
+          ) : (
+            <>
+              Se connecter
+              <ArrowRight className="w-4 h-4" />
+            </>
+          )}
         </button>
       </form>
 
-      <p className="mt-6 text-center text-gray-400">
+      <div className="neo-divider my-6" />
+
+      <p className="text-center text-slate-400 text-sm">
         Pas encore de compte ?{' '}
-        <Link href="/register" className="text-purple-400 hover:text-purple-300">
-          S'inscrire
+        <Link href="/register" className="text-purple-400 hover:text-purple-300 font-medium transition-colors">
+          S'inscrire gratuitement
         </Link>
       </p>
     </div>
