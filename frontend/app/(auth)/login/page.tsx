@@ -6,12 +6,13 @@ import { useRouter } from 'next/navigation';
 import { authApi } from '@/lib/api';
 import { saveTokens } from '@/lib/auth';
 import { ROUTES } from '@/lib/constants';
-import { Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
+import { Mail, Lock, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({ email: '', password: '' });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -19,7 +20,10 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await authApi.login(formData);
+      const data = await authApi.login({
+        email: formData.email.trim().toLowerCase(),
+        password: formData.password.trim(),
+      });
       saveTokens(data.accessToken, data.refreshToken);
       router.push(ROUTES.DASHBOARD);
     } catch (err: any) {
@@ -73,13 +77,21 @@ export default function LoginPage() {
           <div className="relative">
             <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-purple-400/60" />
             <input
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="neo-input w-full pl-10 pr-4 py-3 text-sm"
+              className="neo-input w-full pl-10 pr-10 py-3 text-sm"
               placeholder="••••••••"
               required
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+              tabIndex={-1}
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 

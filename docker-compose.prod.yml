@@ -1,0 +1,95 @@
+version: '3.8'
+
+# Production deployment for pedja.wapiki.com
+# Containers join wapiki-website_wapiki-network so the existing wapiki nginx can route to them
+
+services:
+  pedja-postgres:
+    image: postgres:16-alpine
+    container_name: pedja-postgres
+    environment:
+      POSTGRES_DB: pedja_db
+      POSTGRES_USER: pedja_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pedja-postgres-data:/var/lib/postgresql/data
+    networks:
+      - pedja-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pedja_user -d pedja_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pedja-redis:
+    image: redis:7-alpine
+    container_name: pedja-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - pedja-redis-data:/data
+    networks:
+      - pedja-internal
+    restart: unless-stopped
+
+  pedja-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: pedja-backend
+    environment:
+      - DATABASE_URL=postgresql://pedja_user:${DB_PASSWORD}@pedja-postgres:5432/pedja_db
+      - REDIS_HOST=pedja-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - JWT_EXPIRATION=15m
+      - JWT_REFRESH_EXPIRATION=7d
+      - NODE_ENV=production
+      - PORT=4000
+      - FRONTEND_URL=https://www.pedja.wapiki.com
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - RATE_LIMIT_TTL=60
+      - RATE_LIMIT_MAX=100
+    volumes:
+      - /var/pedja/uploads:/app/uploads
+    depends_on:
+      pedja-postgres:
+        condition: service_healthy
+      pedja-redis:
+        condition: service_started
+    networks:
+      - pedja-internal
+      - wapiki-shared
+    restart: unless-stopped
+
+  pedja-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - NEXT_PUBLIC_API_URL=https://api.pedja.wapiki.com
+    container_name: pedja-frontend
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - pedja-backend
+    networks:
+      - pedja-internal
+      - wapiki-shared
+    restart: unless-stopped
+
+volumes:
+  pedja-postgres-data:
+    driver: local
+  pedja-redis-data:
+    driver: local
+
+networks:
+  pedja-internal:
+    driver: bridge
+  # Join the existing wapiki nginx network so nginx can route to pedja containers
+  wapiki-shared:
+    external: true
+    name: wapiki-website_wapiki-network

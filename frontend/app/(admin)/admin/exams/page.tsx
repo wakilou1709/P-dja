@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Plus, Edit, Trash2, School, GraduationCap, ArrowLeft, Calendar, Upload, FileText, ChevronRight, Briefcase, BookOpen } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { Plus, Edit, Trash2, School, GraduationCap, ArrowLeft, Calendar, Upload, FileText, ChevronRight, Briefcase, BookOpen, CheckCircle, RefreshCw, Sparkles, AlertTriangle, Eye, ExternalLink } from 'lucide-react';
+import Link from 'next/link';
 import { adminApi, examsApi, examConfigApi } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
@@ -105,6 +106,22 @@ export default function AdminExamsPage() {
     difficulty: 'MEDIUM',
     duration: 120,
   });
+
+  // Correction IA state
+  const [generatingCorrectionId, setGeneratingCorrectionId] = useState<string | null>(null);
+  const [correctionStatus, setCorrectionStatus] = useState<{ id: string; ok: boolean } | null>(null);
+
+  // PDF upload state
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [pdfUploadStep, setPdfUploadStep] = useState<'idle' | 'uploading' | 'preview'>('idle');
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfDragOver, setPdfDragOver] = useState(false);
+  const [pdfUploadError, setPdfUploadError] = useState<string | null>(null);
+  const [extractedContent, setExtractedContent] = useState<any>(null);
+  const [extractedCorrection, setExtractedCorrection] = useState<any>(null);
+  const [extractedPdfUrl, setExtractedPdfUrl] = useState('');
+  const [pdfIsScanned, setPdfIsScanned] = useState(false);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchExams();
@@ -450,6 +467,78 @@ export default function AdminExamsPage() {
     }
   };
 
+  // PDF upload handlers
+  const handleOpenPdfModal = () => {
+    setPdfModalOpen(true);
+    setPdfUploadStep('idle');
+    setPdfFile(null);
+    setPdfUploadError(null);
+    setExtractedContent(null);
+    setExtractedCorrection(null);
+    setExtractedPdfUrl('');
+    setPdfIsScanned(false);
+  };
+
+  const handlePdfDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setPdfDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') {
+      setPdfFile(file);
+      setPdfUploadError(null);
+    } else {
+      setPdfUploadError('Seuls les fichiers PDF sont acceptés.');
+    }
+  };
+
+  const handlePdfFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPdfFile(file);
+      setPdfUploadError(null);
+    }
+  };
+
+  const handleExtractPdf = async () => {
+    if (!pdfFile) return;
+    setPdfUploadStep('uploading');
+    setPdfUploadError(null);
+    try {
+      const result = await adminApi.uploadExamPdf(pdfFile);
+      setExtractedContent(result.content);
+      setExtractedCorrection(result.correction ?? null);
+      setExtractedPdfUrl(result.pdfUrl);
+      setPdfIsScanned(result.isScanned);
+      setPdfUploadStep('preview');
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || error?.message || 'Erreur lors du traitement';
+      setPdfUploadError(msg);
+      setPdfUploadStep('idle');
+    }
+  };
+
+  const handleUsePdfContent = () => {
+    setPdfModalOpen(false);
+    setSelectedItem(null);
+    setExamForm({
+      type: selectedStructure?.type === 'national'
+        ? selectedStructure.id
+        : (selectedStructure?.type === 'university' ? 'LICENCE' : 'CEP'),
+      series: selectedSeries || '',
+      university: selectedStructure?.type === 'university' ? selectedStructure.id : 'NONE',
+      faculty: selectedFaculty || '',
+      niveau: selectedNiveau || '',
+      year: selectedYear || new Date().getFullYear(),
+      subject: '',
+      title: '',
+      description: '',
+      difficulty: 'MEDIUM',
+      duration: extractedContent?.duration || 120,
+    });
+    setModalType('epreuve');
+    setModalOpen(true);
+  };
+
   const handleAddEpreuve = () => {
     setSelectedItem(null);
     setExamForm({
@@ -498,6 +587,21 @@ export default function AdminExamsPage() {
       fetchExams();
     } catch (error) {
       console.error('Failed to delete exam:', error);
+    }
+  };
+
+  const handleGenerateCorrection = async (examId: string) => {
+    setGeneratingCorrectionId(examId);
+    setCorrectionStatus(null);
+    try {
+      await adminApi.generateCorrection(examId);
+      setCorrectionStatus({ id: examId, ok: true });
+      fetchExams();
+    } catch (error) {
+      console.error('Failed to generate correction:', error);
+      setCorrectionStatus({ id: examId, ok: false });
+    } finally {
+      setGeneratingCorrectionId(null);
     }
   };
 
@@ -663,11 +767,26 @@ export default function AdminExamsPage() {
         if (examForm.niveau) data.niveau = examForm.niveau;
         data.university = examForm.university || 'NONE';
 
+        // If we have extracted PDF content, include it
+        if (extractedContent && !selectedItem) {
+          data.content = extractedContent;
+        }
+        if (extractedCorrection && !selectedItem) {
+          data.correction = extractedCorrection;
+        }
+        if (extractedPdfUrl && !selectedItem) {
+          data.pdfUrl = extractedPdfUrl;
+        }
+
         if (selectedItem) {
           await adminApi.updateExam(selectedItem.id, data);
         } else {
           await adminApi.createExam(data);
         }
+        // Reset PDF content after use
+        setExtractedContent(null);
+        setExtractedCorrection(null);
+        setExtractedPdfUrl('');
         fetchExams();
       }
 
@@ -1164,10 +1283,11 @@ export default function AdminExamsPage() {
               </Button>
               <Button
                 variant="outline"
-                className="border-slate-600 bg-slate-700 hover:bg-slate-600"
+                className="border-purple-500 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300"
+                onClick={handleOpenPdfModal}
               >
-                <Upload className="w-4 h-4 mr-2" />
-                Upload PDF
+                <Sparkles className="w-4 h-4 mr-2" />
+                Upload PDF + IA
               </Button>
             </div>
           </div>
@@ -1217,16 +1337,64 @@ export default function AdminExamsPage() {
                       )}
                       <div className="text-sm text-gray-400">⏱️ {exam.duration || 0} minutes</div>
                       <div className="text-sm text-gray-400">📝 {exam.totalQuestions || 0} questions</div>
+                      {exam.correction && (
+                        <div className="text-xs text-emerald-400 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" /> Correction IA disponible
+                        </div>
+                      )}
                     </div>
-                    <div className="flex gap-2">
+                    {correctionStatus != null && correctionStatus.id === exam.id && (
+                      <p className={`text-xs mb-2 ${correctionStatus.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {correctionStatus.ok ? '✓ Correction générée !' : '✗ Erreur lors de la génération'}
+                      </p>
+                    )}
+                    <div className="flex gap-2 flex-wrap">
+                      <Link href={`/exams/${exam.id}`} target="_blank" className="flex-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full border-purple-500 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300"
+                        >
+                          <Eye className="w-3 h-3 mr-1" />
+                          Voir
+                        </Button>
+                      </Link>
+                      {exam.pdfUrl && (
+                        <a
+                          href={`http://localhost:4000${exam.pdfUrl}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-cyan-500 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </Button>
+                        </a>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleGenerateCorrection(exam.id)}
+                        disabled={generatingCorrectionId === exam.id || !exam.content}
+                        title={!exam.content ? "Upload d'abord le PDF" : exam.correction ? 'Regénérer la correction IA' : 'Générer la correction IA'}
+                        className="border-emerald-500 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 disabled:opacity-40"
+                      >
+                        {generatingCorrectionId === exam.id ? (
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3 h-3" />
+                        )}
+                      </Button>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => handleEditEpreuve(exam)}
-                        className="flex-1 border-slate-600 bg-slate-700 hover:bg-slate-600"
+                        className="border-slate-600 bg-slate-700 hover:bg-slate-600"
                       >
-                        <Edit className="w-3 h-3 mr-1" />
-                        Modifier
+                        <Edit className="w-3 h-3" />
                       </Button>
                       <Button
                         size="sm"
@@ -1368,6 +1536,22 @@ export default function AdminExamsPage() {
 
             {modalType === 'epreuve' && (
               <>
+                {extractedContent && !selectedItem && (
+                  <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+                    pdfIsScanned
+                      ? 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-400'
+                      : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                  }`}>
+                    {pdfIsScanned
+                      ? <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                      : <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    }
+                    {pdfIsScanned
+                      ? 'PDF scanné — le fichier sera associé à cette épreuve (sans structuration)'
+                      : 'Contenu PDF structuré sera associé à cette épreuve'
+                    }
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label className="text-gray-400">Matière *</Label>
@@ -1446,6 +1630,177 @@ export default function AdminExamsPage() {
               </Button>
             </div>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* PDF Upload Modal */}
+      <Dialog open={pdfModalOpen} onOpenChange={(open) => { setPdfModalOpen(open); if (!open) { setPdfUploadStep('idle'); setPdfFile(null); setPdfUploadError(null); } }}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-400" />
+              Upload PDF + Structuration IA
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Uploadez un PDF d&apos;épreuve — l&apos;IA extraira et structurera le contenu automatiquement
+            </DialogDescription>
+          </DialogHeader>
+
+          {pdfUploadStep === 'idle' && (
+            <div className="space-y-4 py-4">
+              {/* Drag & Drop Zone */}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setPdfDragOver(true); }}
+                onDragLeave={() => setPdfDragOver(false)}
+                onDrop={handlePdfDrop}
+                onClick={() => pdfInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${
+                  pdfDragOver
+                    ? 'border-purple-400 bg-purple-500/10'
+                    : pdfFile
+                    ? 'border-green-500 bg-green-500/10'
+                    : 'border-slate-600 bg-slate-700/50 hover:border-purple-500 hover:bg-purple-500/5'
+                }`}
+              >
+                <input
+                  ref={pdfInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={handlePdfFileSelect}
+                />
+                {pdfFile ? (
+                  <>
+                    <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
+                    <p className="text-green-400 font-semibold">{pdfFile.name}</p>
+                    <p className="text-gray-400 text-sm mt-1">{(pdfFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-12 h-12 text-gray-500 mx-auto mb-3" />
+                    <p className="text-white font-semibold">Glissez votre PDF ici</p>
+                    <p className="text-gray-400 text-sm mt-1">ou cliquez pour sélectionner</p>
+                    <p className="text-gray-500 text-xs mt-3">Format PDF · Max 20 MB</p>
+                  </>
+                )}
+              </div>
+
+              {pdfUploadError && (
+                <p className="text-sm text-red-400 bg-red-900/20 border border-red-500/30 rounded px-3 py-2">
+                  {pdfUploadError}
+                </p>
+              )}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPdfModalOpen(false)} className="border-slate-600 bg-slate-700 hover:bg-slate-600">
+                  Annuler
+                </Button>
+                <Button
+                  onClick={handleExtractPdf}
+                  disabled={!pdfFile}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Extraire avec IA
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+
+          {pdfUploadStep === 'uploading' && (
+            <div className="py-16 text-center space-y-4">
+              <div className="w-16 h-16 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto" />
+              <p className="text-white font-semibold">Extraction en cours...</p>
+              <p className="text-gray-400 text-sm">Analyse et structuration du PDF (quelques secondes)</p>
+            </div>
+          )}
+
+          {pdfUploadStep === 'preview' && extractedContent && (
+            <div className="space-y-4 py-4">
+              {/* Success / scanned banner */}
+              {pdfIsScanned ? (
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30">
+                  <AlertTriangle className="w-6 h-6 text-yellow-400 flex-shrink-0" />
+                  <div>
+                    <p className="text-yellow-400 font-semibold">PDF scanné détecté</p>
+                    <p className="text-gray-400 text-sm">
+                      Le texte n&apos;a pas pu être extrait automatiquement. Vous pouvez quand même associer le PDF à cette épreuve.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-green-500/10 border border-green-500/30">
+                  <CheckCircle className="w-6 h-6 text-green-400 flex-shrink-0" />
+                  <div>
+                    <p className="text-green-400 font-semibold">PDF analysé et reconstruit par l&apos;IA ✨</p>
+                    <p className="text-gray-400 text-sm">
+                      {extractedContent.fullContent ? 'Contenu fidèle généré' : `${extractedContent.sections?.length || 0} section(s) détectée(s)`}
+                      {extractedContent.totalPoints ? ` · ${extractedContent.totalPoints} pts` : ''}
+                      {extractedContent.duration ? ` · ${extractedContent.duration} min` : ''}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview — aperçu du rendu étudiant */}
+              {!pdfIsScanned && (
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Aperçu du rendu étudiant</p>
+                  <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-700 bg-slate-950">
+                    {extractedContent.fullContent ? (
+                      /* ── Rendu fullContent : fidèle à l'affichage étudiant ── */
+                      <div className="p-4 space-y-3">
+                        {/* Mini header */}
+                        <div className="rounded-xl overflow-hidden" style={{ background: 'linear-gradient(135deg,rgba(79,70,229,.12),rgba(6,182,212,.07))', border: '1px solid rgba(139,92,246,.22)' }}>
+                          <div className="px-4 py-3 text-center" style={{ borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                            <p className="text-[10px] font-black text-white uppercase tracking-widest" style={{ textDecoration: 'underline', textUnderlineOffset: '4px', textDecorationColor: 'rgba(139,92,246,.5)' }}>
+                              {extractedContent.fullContent.split('\n').find((l: string) => /^[EÉ]PREUVE/.test(l.trim()))?.trim() || 'ÉPREUVE'}
+                            </p>
+                          </div>
+                          <div className="flex justify-center gap-6 px-4 py-2 text-[10px]">
+                            {extractedContent.duration && <span className="text-slate-400">Durée : <strong className="text-white">{extractedContent.duration} min</strong></span>}
+                            {extractedContent.totalPoints && <span className="text-slate-400">Total : <strong className="text-white">{extractedContent.totalPoints} pts</strong></span>}
+                          </div>
+                        </div>
+                        {/* Contenu brut scrollable */}
+                        <p className="text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap font-mono px-1">
+                          {extractedContent.fullContent.slice(0, 1200)}{extractedContent.fullContent.length > 1200 ? '\n…' : ''}
+                        </p>
+                      </div>
+                    ) : (
+                      /* ── Fallback sections list ── */
+                      <div className="p-4 space-y-3">
+                        {extractedContent.instructions?.map((ins: string, i: number) => (
+                          <p key={i} className="text-xs text-gray-300">• {ins}</p>
+                        ))}
+                        {extractedContent.sections?.map((section: any, i: number) => (
+                          <div key={i} className="border border-slate-700 rounded-lg p-3">
+                            <p className="text-sm font-semibold text-purple-400">{section.title}</p>
+                            {section.preamble && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{section.preamble}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <DialogFooter className="gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => { setPdfUploadStep('idle'); setPdfFile(null); }}
+                  className="border-slate-600 bg-slate-700 hover:bg-slate-600"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Re-uploader
+                </Button>
+                <Button onClick={handleUsePdfContent} className="bg-purple-600 hover:bg-purple-700">
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  {pdfIsScanned ? 'Associer ce PDF à une épreuve' : 'Utiliser ce contenu'}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

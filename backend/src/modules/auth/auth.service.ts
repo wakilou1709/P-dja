@@ -16,13 +16,14 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto): Promise<TokensDto> {
-    // Normalize phone number (add +226 if not present)
+    // Normalize email and phone
+    const normalizedEmail = dto.email.trim().toLowerCase();
     const normalizedPhone = dto.phone ? this.normalizePhone(dto.phone) : undefined;
 
     // Check if user already exists
     const existingUser = await this.prisma.user.findFirst({
       where: {
-        OR: [{ email: dto.email }, normalizedPhone ? { phone: normalizedPhone } : {}],
+        OR: [{ email: normalizedEmail }, normalizedPhone ? { phone: normalizedPhone } : {}],
       },
     });
 
@@ -36,7 +37,7 @@ export class AuthService {
     // Create user
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email: normalizedEmail,
         password: hashedPassword,
         firstName: dto.firstName,
         lastName: dto.lastName,
@@ -58,9 +59,13 @@ export class AuthService {
   }
 
   async login(dto: LoginDto): Promise<TokensDto> {
+    // Normalize email and trim password
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    const password = dto.password.trim();
+
     // Find user
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizedEmail },
     });
 
     if (!user) {
@@ -68,7 +73,7 @@ export class AuthService {
     }
 
     // Verify password
-    const passwordValid = await bcrypt.compare(dto.password, user.password);
+    const passwordValid = await bcrypt.compare(password, user.password);
 
     if (!passwordValid) {
       throw new UnauthorizedException('Email ou mot de passe incorrect');

@@ -153,6 +153,18 @@ export const adminApi = {
     const response = await api.get('/admin/exams/popular', { params: { limit } });
     return response.data;
   },
+  uploadExamPdf: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post('/admin/exams/upload-pdf', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data as { pdfUrl: string; content: any; correction: any; rawTextLength: number; isScanned: boolean };
+  },
+  generateCorrection: async (examId: string) => {
+    const response = await api.post(`/admin/exams/${examId}/generate-correction`);
+    return response.data as { fullCorrection: string; sections: any[]; generatedAt: string; model: string };
+  },
 
   // Finance
   getSubscriptions: async (filters?: any) => {

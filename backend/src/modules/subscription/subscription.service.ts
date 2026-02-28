@@ -37,15 +37,21 @@ export class SubscriptionService {
     }
 
     const now = new Date();
+    const userRole = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
     const hasAccess =
-      subscription.plan !== 'FREE' &&
-      subscription.status === 'ACTIVE' &&
-      (subscription.endDate === null || subscription.endDate > now);
+      userRole?.role === 'ADMIN' ||
+      userRole?.role === 'MODERATOR' ||
+      (subscription.plan !== 'FREE' &&
+       subscription.status === 'ACTIVE' &&
+       (subscription.endDate === null || subscription.endDate > now));
 
     return { subscription, hasAccess };
   }
 
   async checkAccess(userId: string): Promise<{ hasAccess: boolean }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    if (user?.role === 'ADMIN' || user?.role === 'MODERATOR') return { hasAccess: true };
+
     const subscription = await this.prisma.subscription.findUnique({
       where: { userId },
     });

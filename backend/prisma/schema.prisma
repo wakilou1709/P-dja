@@ -135,6 +135,8 @@ model Exam {
   university     String?         @default("NONE")
   series         String?
   niveau         String?
+  content        Json?
+  correction     Json?
   questions      Question[]
 
   @@index([type])

@@ -10,12 +10,14 @@ import { GenerateQuestionsDto } from '../dto/generate-questions.dto';
 
 @Injectable()
 export class AdminQuestionsService {
-  private anthropic: Anthropic;
+  constructor(private prisma: PrismaService) {}
 
-  constructor(private prisma: PrismaService) {
-    this.anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
+  private getAnthropicClient(): Anthropic {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new BadRequestException('ANTHROPIC_API_KEY non configurée');
+    }
+    return new Anthropic({ apiKey });
   }
 
   async getAll(
@@ -101,9 +103,7 @@ export class AdminQuestionsService {
   }
 
   async generateWithAI(dto: GenerateQuestionsDto) {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new BadRequestException('ANTHROPIC_API_KEY non configurée');
-    }
+    const anthropic = this.getAnthropicClient();
 
     const typeLabels: Record<string, string> = {
       MULTIPLE_CHOICE: 'QCM (4 options A/B/C/D)',
@@ -150,7 +150,7 @@ Règles:
 - Pour ESSAY (calcul): options = null, correctAnswer = le résultat numérique sous forme de texte
 - Alterne les types si plusieurs types sont demandés`;
 
-    const message = await this.anthropic.messages.create({
+    const message = await anthropic.messages.create({
       model: 'claude-opus-4-5',
       max_tokens: 4000,
       messages: [{ role: 'user', content: prompt }],

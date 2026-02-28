@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -29,6 +31,12 @@ import { validationSchema } from './config/validation.schema';
         limit: parseInt(process.env.RATE_LIMIT_MAX) || 100,
       },
     ]),
+
+    // Serve uploaded files
+    ServeStaticModule.forRoot({
+      rootPath: process.env.UPLOADS_DIR || join('/app', 'uploads'),
+      serveRoot: '/uploads',
+    }),
 
     // Core modules
     PrismaModule,

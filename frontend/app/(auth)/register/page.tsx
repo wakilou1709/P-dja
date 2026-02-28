@@ -6,12 +6,13 @@ import { useRouter } from 'next/navigation';
 import { authApi } from '@/lib/api';
 import { saveTokens } from '@/lib/auth';
 import { ROUTES } from '@/lib/constants';
-import { Mail, Lock, User, Phone, ArrowRight, AlertCircle, CheckCircle } from 'lucide-react';
+import { Mail, Lock, User, Phone, ArrowRight, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-react';
 
 export default function RegisterPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     email: '', password: '', firstName: '', lastName: '', phone: '',
   });
@@ -21,7 +22,13 @@ export default function RegisterPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await authApi.register(formData);
+      const data = await authApi.register({
+        ...formData,
+        email: formData.email.trim().toLowerCase(),
+        password: formData.password.trim(),
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+      });
       saveTokens(data.accessToken, data.refreshToken);
       router.push(ROUTES.DASHBOARD);
     } catch (err: any) {
@@ -123,13 +130,21 @@ export default function RegisterPage() {
           <div className="relative">
             <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-purple-400/60" />
             <input
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="neo-input w-full pl-10 pr-4 py-2.5 text-sm"
+              className="neo-input w-full pl-10 pr-10 py-2.5 text-sm"
               placeholder="••••••••"
               required
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+              tabIndex={-1}
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
           </div>
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-0.5 flex-1 rounded-full transition-colors ${formData.password.length >= 1 ? 'bg-red-400' : 'bg-slate-700'}`} />
