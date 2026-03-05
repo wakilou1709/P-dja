@@ -21,7 +21,13 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "ts-node prisma/seed.ts"
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "import:sujets": "ts-node scripts/import-sujets.ts",
+    "import:sujets:dry": "ts-node scripts/import-sujets.ts --dry-run",
+    "import:sujets:status": "ts-node scripts/import-sujets.ts --status",
+    "import:sujets:reset": "ts-node scripts/import-sujets.ts --reset",
+    "clean:ocr": "ts-node scripts/clean-ocr.ts",
+    "clean:ocr:dry": "ts-node scripts/clean-ocr.ts --dry-run"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

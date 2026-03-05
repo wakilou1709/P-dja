@@ -102,248 +102,53 @@ function PaywallOverlay({ onSubscribe }: { onSubscribe: () => void }) {
   );
 }
 
-function StructuredExamView({ text, blurred }: { text: string; blurred: boolean }) {
-  const lines = text.split('\n');
+/**
+ * FaithfulTextView — rendu fidèle du texte extrait (pdftotext / OCR).
+ * Thème neomorphique clair (fond #e0e5ec, texte #2d3748).
+ */
+function FaithfulTextView({ text, blurred }: { text: string; blurred: boolean }) {
+  const cleaned = text.replace(/\f/g, '\n\n────────────────────────────────\n\n');
 
-  // --- Locate structural boundaries ---
-  const epreuveIdx = lines.findIndex(l => /^[EÉ]PREUVE\s+D['']/.test(l.trim()));
-  const pagesIdx   = lines.findIndex(l => l.trim().startsWith('Cette épreuve comporte'));
-  const footerIdx  = lines.findIndex(l => /MESFPT|DGECC/.test(l.trim()));
-
-  // --- Parse header block ---
-  let examTitle = '', country = 'BURKINA FASO', slogan = '', session = '', tour = '', serie = '';
-  const headerEnd = epreuveIdx >= 0 ? epreuveIdx : 8;
-
-  for (let i = 0; i < headerEnd; i++) {
-    const raw = lines[i] || '';
-    const t = raw.trim();
-    if (!t || /^\.{3,}$/.test(t)) continue;
-
-    const twoCol = raw.match(/^(\S.+?\S)\s{4,}(\S.*\S|\S)$/);
-
-    if (/^EXAMEN\s+DU\s+BACCALAU/.test(t)) {
-      examTitle = twoCol ? twoCol[1].trim() : t;
-      if (twoCol) country = twoCol[2].trim();
-    } else if (t === 'BURKINA FASO') {
-      country = 'BURKINA FASO';
-    } else if (t.startsWith('La Patrie')) {
-      slogan = t;
-    } else if (/^SESSION\s+(NORMALE|COMPL)/i.test(t)) {
-      session = twoCol ? twoCol[1].trim() : t;
-      if (twoCol) tour = tour || twoCol[2].trim();
-    } else if (/^[12](er|ème|°)\s*tour/i.test(t)) {
-      tour = t;
-    } else if (/^SERIE\s*:/i.test(t)) {
-      serie = t.replace(/^SERIE\s*:\s*/i, '').trim();
-    } else if (/^\s{15,}/.test(raw)) {
-      const val = t;
-      if (val === 'BURKINA FASO') country = val;
-      else if (val.startsWith('La Patrie')) slogan = val;
-      else if (/^[12](er|ème|°)\s*tour/i.test(val)) tour = val;
-    }
-  }
-
-  // --- Parse epreuve title + meta ---
-  const epreuveLine = epreuveIdx >= 0 ? (lines[epreuveIdx]?.trim() || '') : '';
-  let instruction = '', coefficient = '', duree = '', pagesText = '';
-  const metaEnd = pagesIdx >= 0 ? pagesIdx + 1 : Math.min((epreuveIdx >= 0 ? epreuveIdx : 0) + 10, lines.length);
-  for (let i = (epreuveIdx >= 0 ? epreuveIdx + 1 : 0); i < metaEnd; i++) {
-    const l = lines[i]?.trim() || '';
-    if (!l) continue;
-    if (/^Les\s+calculatrices/i.test(l)) instruction = l;
-    else if (/^Coefficient\s*:/i.test(l)) coefficient = l.replace(/^Coefficient\s*:\s*/i, '').trim();
-    else if (/^Dur[eé]e\s*:/i.test(l)) duree = l.replace(/^Dur[eé]e\s*:\s*/i, '').trim();
-    else if (l.startsWith('Cette épreuve')) pagesText = l;
-  }
-
-  // --- Parse body lines ---
-  type BodyItem =
-    | { t: 'section';    num: string; title: string }
-    | { t: 'subsection'; num: string; title: string }
-    | { t: 'bullet';  text: string }
-    | { t: 'nb';      text: string }
-    | { t: 'heading'; text: string }
-    | { t: 'paragraph'; text: string };
-
-  const bodyStart = pagesIdx >= 0 ? pagesIdx + 1 : (epreuveIdx >= 0 ? epreuveIdx + 6 : 0);
-  const bodyEnd   = footerIdx >= 0 ? footerIdx : lines.length;
-  const bodyItems: BodyItem[] = [];
-
-  for (let i = bodyStart; i < bodyEnd; i++) {
-    const raw = lines[i] || '';
-    const t = raw.trim();
-    if (!t) continue;
-
-    if (t.startsWith('❖')) {
-      bodyItems.push({ t: 'bullet', text: t.replace(/^❖\s*/, '') });
-    } else if (/^NB\s*:/i.test(t)) {
-      bodyItems.push({ t: 'nb', text: t.replace(/^NB\s*:\s*/i, '') });
-    } else if (/^\d+[-–]\s+\S/.test(t)) {
-      const m = t.match(/^(\d+[-–])\s+(.+)$/);
-      bodyItems.push(m ? { t: 'section', num: m[1], title: m[2] } : { t: 'paragraph', text: t });
-    } else if (/^\s{2,}\d+[-–]\d+/.test(raw) || /^\d+[-–]\d+[-–]/.test(t)) {
-      const m = t.match(/^(\d+[-–]\d+[-–])\s*(.+)$/);
-      bodyItems.push(m ? { t: 'subsection', num: m[1], title: m[2] } : { t: 'paragraph', text: t });
-    } else if (t.length <= 60 && (t.endsWith(':') || /^(Considérations|Introduction|Conclusion|Remarques?)$/i.test(t))) {
-      bodyItems.push({ t: 'heading', text: t });
-    } else {
-      bodyItems.push({ t: 'paragraph', text: t });
-    }
-  }
-
-  const footerLines = footerIdx >= 0 ? lines.slice(footerIdx).filter(l => l.trim()) : [];
-
-  // --- Render ---
   return (
-    <div className={`space-y-4 ${blurred ? 'relative overflow-hidden' : ''}`}
-      style={{ minHeight: blurred ? '700px' : 'auto' }}>
-      <div className={blurred ? 'pointer-events-none select-none' : ''}>
-
-        {/* ═══ HEADER CARD ═══ */}
-        <div className="rounded-2xl overflow-hidden mb-4" style={{
-          background: 'linear-gradient(135deg, rgba(79,70,229,0.12) 0%, rgba(6,182,212,0.07) 100%)',
-          border: '1px solid rgba(139,92,246,0.22)',
+    <div style={{ position: 'relative', minHeight: blurred ? '700px' : 'auto', overflow: blurred ? 'hidden' : 'visible' }}>
+      <div style={{
+        background: '#e8edf3',
+        boxShadow: 'inset 2px 2px 5px #a3b1c6, inset -2px -2px 5px #ffffff',
+        borderRadius: '16px',
+        padding: '28px 32px',
+        userSelect: blurred ? 'none' : 'text',
+        pointerEvents: blurred ? 'none' : 'auto',
+      }}>
+        <pre style={{
+          color: '#2d3748',
+          fontSize: '13.5px',
+          lineHeight: '1.9',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          fontFamily: 'Inter, "Noto Sans", system-ui, sans-serif',
+          margin: 0,
+          padding: 0,
+          background: 'transparent',
+          border: 'none',
         }}>
-          {/* Two-column header */}
-          <div className="grid grid-cols-2 gap-4 px-6 pt-5 pb-4"
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-            <div className="space-y-1">
-              {examTitle && (
-                <p className="text-[11px] font-bold text-white/90 uppercase tracking-wide leading-snug">
-                  {examTitle}
-                </p>
-              )}
-              {session && (
-                <p className="text-[10px] text-slate-400">{session}</p>
-              )}
-              {serie && (
-                <span className="inline-block mt-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-full"
-                  style={{ background: 'rgba(139,92,246,0.2)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.3)' }}>
-                  SÉRIE {serie}
-                </span>
-              )}
-            </div>
-            <div className="text-right space-y-0.5">
-              {country && (
-                <p className="text-[11px] font-bold text-cyan-300/90 uppercase tracking-wide">{country}</p>
-              )}
-              {slogan && (
-                <p className="text-[10px] text-slate-400 italic leading-snug">{slogan}</p>
-              )}
-              {tour && (
-                <p className="text-[10px] text-purple-300 font-semibold pt-1">{tour}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Exam title + instruction */}
-          <div className="text-center px-6 py-4"
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-            <h2 className="text-sm font-black text-white uppercase tracking-widest"
-              style={{ textDecoration: 'underline', textUnderlineOffset: '5px', textDecorationColor: 'rgba(139,92,246,0.5)' }}>
-              {epreuveLine}
-            </h2>
-            {instruction && (
-              <p className="text-[11px] text-slate-300 italic mt-2">{instruction}</p>
-            )}
-          </div>
-
-          {/* Meta bar: Coefficient · Durée · Pages */}
-          <div className="flex items-center justify-center gap-8 px-6 py-3 flex-wrap">
-            {coefficient && (
-              <div className="text-center">
-                <p className="text-[9px] uppercase tracking-widest text-slate-500 mb-0.5">Coefficient</p>
-                <p className="text-xl font-black text-white">{coefficient}</p>
-              </div>
-            )}
-            {duree && (
-              <div className="w-px h-8 self-center" style={{ background: 'rgba(255,255,255,0.06)' }} />
-            )}
-            {duree && (
-              <div className="text-center">
-                <p className="text-[9px] uppercase tracking-widest text-slate-500 mb-0.5">Durée</p>
-                <p className="text-xl font-black text-white">{duree}</p>
-              </div>
-            )}
-            {pagesText && (
-              <>
-                <div className="w-px h-8 self-center" style={{ background: 'rgba(255,255,255,0.06)' }} />
-                <p className="text-[10px] text-slate-500 italic">{pagesText}</p>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* ═══ BODY CARD ═══ */}
-        <div className="rounded-2xl overflow-hidden"
-          style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <div className="p-6 md:p-8 space-y-2">
-            {bodyItems.map((item, idx) => {
-              if (item.t === 'section') return (
-                <div key={idx} className={idx > 0 ? 'pt-5' : ''}>
-                  <div className="flex items-center gap-2.5 mb-2">
-                    <span className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black text-purple-300 flex-shrink-0"
-                      style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.25)' }}>
-                      {item.num.replace('-', '')}
-                    </span>
-                    <h3 className="text-sm font-bold text-white uppercase tracking-wide">{item.title}</h3>
-                  </div>
-                  <div className="h-px" style={{ background: 'linear-gradient(to right, rgba(139,92,246,0.4), transparent)' }} />
-                </div>
-              );
-              if (item.t === 'subsection') return (
-                <div key={idx} className="flex items-baseline gap-2 pt-3 pl-2">
-                  <span className="text-[10px] font-bold text-cyan-400 flex-shrink-0 px-1.5 py-0.5 rounded"
-                    style={{ background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.15)' }}>
-                    {item.num}
-                  </span>
-                  <h4 className="text-sm font-semibold text-cyan-200">{item.title}</h4>
-                </div>
-              );
-              if (item.t === 'bullet') return (
-                <div key={idx} className="flex items-start gap-2.5 pl-3">
-                  <span className="mt-[7px] w-1.5 h-1.5 rounded-full flex-shrink-0"
-                    style={{ background: 'rgba(139,92,246,0.7)' }} />
-                  <p className="text-sm text-slate-200 leading-relaxed">{item.text}</p>
-                </div>
-              );
-              if (item.t === 'nb') return (
-                <div key={idx} className="flex items-start gap-2.5 ml-3 rounded-lg px-3.5 py-2.5 mt-1"
-                  style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.12)' }}>
-                  <span className="text-[10px] font-black text-amber-400 flex-shrink-0 mt-0.5 tracking-wider">NB</span>
-                  <p className="text-xs text-amber-200/75 leading-relaxed italic">{item.text}</p>
-                </div>
-              );
-              if (item.t === 'heading') return (
-                <p key={idx} className="text-sm font-bold text-slate-100 pt-3">{item.text}</p>
-              );
-              return (
-                <p key={idx} className="text-sm text-slate-300 leading-relaxed pl-1">{item.text}</p>
-              );
-            })}
-          </div>
-
-          {/* Footer */}
-          {footerLines.length > 0 && (
-            <div className="px-6 py-2.5 flex justify-between items-center"
-              style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-              <span className="text-[10px] text-slate-600 font-mono">{footerLines[0]}</span>
-              {footerLines[1] && (
-                <span className="text-[10px] text-slate-600">Page {footerLines[1]}</span>
-              )}
-            </div>
-          )}
-        </div>
+          {cleaned}
+        </pre>
       </div>
-
-      {/* Paywall gradient */}
       {blurred && (
-        <div className="absolute bottom-0 left-0 right-0 h-64 pointer-events-none"
-          style={{ background: 'linear-gradient(to top, rgba(15,23,42,1) 0%, transparent 100%)' }} />
+        <div style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0, height: '260px',
+          pointerEvents: 'none',
+          background: 'linear-gradient(to top, #e0e5ec 0%, rgba(224,229,236,0) 100%)',
+        }} />
       )}
     </div>
   );
 }
+
+function StructuredExamView({ text, blurred }: { text: string; blurred: boolean }) {
+  return <FaithfulTextView text={text} blurred={blurred} />;
+}
+
 
 function CorrectionView({ text, blurred }: { text: string; blurred: boolean }) {
   const lines = text.split('\n');
@@ -433,8 +238,11 @@ function CorrectionView({ text, blurred }: { text: string; blurred: boolean }) {
 }
 
 function ExamDocument({ content, blurred }: { content: ExamContent; blurred: boolean }) {
-  if (content.fullContent) {
-    return <StructuredExamView text={content.fullContent} blurred={blurred} />;
+  // Pour les examens importés (BEPC, OCR), le texte est dans fullContent ou rawText
+  const rawTextFallback = (content as any).rawText as string | undefined;
+  const textToShow = content.fullContent || rawTextFallback;
+  if (textToShow) {
+    return <FaithfulTextView text={textToShow} blurred={blurred} />;
   }
 
   return (
@@ -662,7 +470,23 @@ export default function ExamDetailPage() {
     );
   }
 
-  const content: ExamContent | null = exam.content as ExamContent | null;
+  // Normalise le contenu : nos examens importés stockent le texte dans rawText ou section.text
+  const rawContent = exam.content as any | null;
+  const content: ExamContent | null = rawContent
+    ? {
+        ...rawContent,
+        // Préfère fullContent existant, sinon utilise rawText (examens importés via seed)
+        fullContent: rawContent.fullContent ?? rawContent.rawText ?? undefined,
+        sections: (rawContent.sections ?? []).map((s: any) => ({
+          ...s,
+          // Préfère section.content, sinon section.text (examens importés)
+          content: s.content ?? s.text ?? undefined,
+          preamble: s.preamble ?? '',
+          points: s.points ?? null,
+          questions: s.questions ?? [],
+        })),
+      }
+    : null;
   const correction = exam.correction as { fullCorrection: string; generatedAt: string; model: string } | null;
   const showBlurred = !hasAccess;
   const hasCorrection = !!(correction?.fullCorrection);

@@ -1,14 +1,30 @@
-import { Stack } from 'expo-router';
+import { useEffect } from 'react';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { AuthProvider, useAuth } from '../lib/auth-context';
 
-export default function RootLayout() {
+function RootNavigator() {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+  const segments = useSegments();
+
+  useEffect(() => {
+    if (isLoading) return;
+    const inAuthGroup = segments[0] === '(tabs)';
+    if (!user && inAuthGroup) {
+      router.replace('/login');
+    } else if (user && !inAuthGroup && segments[0] !== undefined) {
+      router.replace('/(tabs)');
+    }
+  }, [user, isLoading, segments]);
+
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: '#0F172A' },
+          contentStyle: { backgroundColor: '#e0e5ec' },
         }}
       >
         <Stack.Screen name="index" />
@@ -17,5 +33,13 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
       </Stack>
     </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <RootNavigator />
+    </AuthProvider>
   );
 }
