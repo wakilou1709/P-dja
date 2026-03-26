@@ -2,17 +2,31 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const compression = require('compression');
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Gzip compression — réduit drastiquement la taille des réponses JSON
+  app.use(compression());
+
+  // Limites body: 10mb suffisant pour import batch (texte OCR, pas binaire)
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ limit: '10mb', extended: true }));
+
   // Security
-  app.use(helmet());
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }, // permet au frontend de charger les fichiers uploadés (vidéos, PDFs)
+  }));
 
   // CORS
   const allowedOrigins = [
     process.env.FRONTEND_URL || 'http://localhost:3000',
+    'https://pe-dja.com',
+    'https://www.pe-dja.com',
     'https://pedja.wapiki.com',
     'https://www.pedja.wapiki.com',
     'http://localhost:3000',

@@ -113,6 +113,54 @@ model PromoCodeUsage {
   @@map("promo_code_usages")
 }
 
+model VideoCategory {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  icon        String?
+  color       String   @default("#9333ea")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  videos      Video[]
+
+  @@map("video_categories")
+}
+
+model Video {
+  id           String        @id @default(uuid())
+  title        String
+  description  String?
+  url          String
+  thumbnailUrl String?
+  duration     String?
+  categoryId   String?
+  views        Int           @default(0)
+  isPublished  Boolean       @default(true)
+  isFeatured   Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  category     VideoCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([categoryId])
+  @@index([isFeatured])
+  @@map("videos")
+}
+
+model PrepClass {
+  id          String   @id @default(uuid())
+  name        String
+  city        String
+  region      String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  exams       Exam[]
+
+  @@map("prep_classes")
+}
+
 model Exam {
   id             String          @id @default(uuid())
   title          String
@@ -137,6 +185,13 @@ model Exam {
   niveau         String?
   content        Json?
   correction     Json?
+  country        String?         @default("BF")
+  contentHash    String?
+  importBatchId  String?
+  prepClassId    String?
+  prepYear       Int?
+  importBatch    ImportBatch?    @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  prepClass      PrepClass?      @relation(fields: [prepClassId], references: [id], onDelete: SetNull)
   questions      Question[]
 
   @@index([type])
@@ -145,7 +200,29 @@ model Exam {
   @@index([series])
   @@index([university])
   @@index([faculty])
+  @@index([prepClassId])
+  @@index([isPublished])
+  @@index([country])
+  @@index([type, year])
+  @@index([country, type])
+  @@index([isPublished, type, year])
   @@map("exams")
+}
+
+model ImportBatch {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  totalAnalyzed  Int      // Fichiers soumis à l'analyse
+  newCount       Int      // Détectés comme nouveaux
+  similarCount   Int      // Similaires (autre institution)
+  duplicateCount Int      // Doublons stricts
+  errorCount     Int      // Erreurs de traitement
+  rejectedCount  Int      // Exclus par l'utilisateur
+  importedCount  Int      // Réellement créés en BD
+  withCorrection Int      // Avec corrigé IA généré
+  exams          Exam[]   // Épreuves réellement créées par ce lot
+
+  @@map("import_batches")
 }
 
 model Question {
@@ -400,4 +477,29 @@ enum NotificationType {
   ACHIEVEMENT
   REMINDER
   SOCIAL
+}
+
+model Announcement {
+  id        String           @id @default(uuid())
+  title     String
+  message   String
+  type      AnnouncementType @default(INFO)
+  countries String[]         // [] = tous les pays
+  color     String           @default("#7c3aed")
+  link      String?
+  startDate DateTime         @default(now())
+  endDate   DateTime?
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([isActive])
+  @@map("announcements")
+}
+
+enum AnnouncementType {
+  EXAM_DATE
+  REGISTRATION
+  INFO
+  ALERT
 }

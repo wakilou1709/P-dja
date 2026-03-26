@@ -13,6 +13,31 @@ export class ExamsService {
     });
   }
 
+  async getPrepClasses() {
+    return this.prisma.prepClass.findMany({
+      orderBy: [{ city: 'asc' }, { name: 'asc' }],
+      include: { _count: { select: { exams: true } } },
+    });
+  }
+
+  async getPrepClassById(id: string) {
+    const pc = await this.prisma.prepClass.findUnique({
+      where: { id },
+    });
+    if (!pc) throw new NotFoundException('Classe prépa non trouvée');
+    return pc;
+  }
+
+  async getPrepClassExams(prepClassId: string, prepYear?: number) {
+    const where: any = { prepClassId };
+    if (prepYear) where.prepYear = prepYear;
+    return this.prisma.exam.findMany({
+      where,
+      orderBy: [{ prepYear: 'asc' }, { subject: 'asc' }, { year: 'desc' }],
+      include: { _count: { select: { questions: true } } },
+    });
+  }
+
   async findAll(filters?: {
     type?: string;
     subject?: string;
@@ -22,6 +47,9 @@ export class ExamsService {
     faculty?: string;
     series?: string;
     search?: string;
+    country?: string;
+    prepClassId?: string;
+    prepYear?: number;
   }) {
     const where: any = {};
 
@@ -61,17 +89,60 @@ export class ExamsService {
       ];
     }
 
+    if (filters?.country) {
+      where.country = filters.country;
+    }
+
+    if (filters?.prepClassId) {
+      where.prepClassId = filters.prepClassId;
+    }
+
+    if (filters?.prepYear) {
+      where.prepYear = filters.prepYear;
+    }
+
     const exams = await this.prisma.exam.findMany({
       where,
       orderBy: [{ year: 'desc' }, { createdAt: 'desc' }],
-      include: {
-        _count: {
-          select: { questions: true },
-        },
+      // Exclure content/correction (JSON lourds ~100-500 KB) de la liste
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        year: true,
+        subject: true,
+        description: true,
+        pdfUrl: true,
+        thumbnailUrl: true,
+        difficulty: true,
+        duration: true,
+        totalQuestions: true,
+        downloadCount: true,
+        viewCount: true,
+        tags: true,
+        isPublished: true,
+        createdAt: true,
+        updatedAt: true,
+        faculty: true,
+        university: true,
+        series: true,
+        niveau: true,
+        country: true,
+        importBatchId: true,
+        prepClassId: true,
+        prepYear: true,
+        content: true,
+        correction: true,
+        _count: { select: { questions: true } },
       },
     });
 
-    return exams;
+    // Remplacer content/correction par des booléens pour éviter de transporter des MB de JSON
+    return exams.map(({ content, correction, ...rest }) => ({
+      ...rest,
+      hasContent: content != null,
+      hasCorrection: correction != null,
+    }));
   }
 
   async findById(id: string) {
@@ -141,6 +212,37 @@ export class ExamsService {
     });
 
     return exams.map((e) => ({ university: e.university, faculty: e.faculty }));
+  }
+
+  async syncExams(since?: Date) {
+    const where: any = {};
+    if (since) {
+      where.updatedAt = { gt: since };
+    }
+    const exams = await this.prisma.exam.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true, title: true, type: true, year: true, subject: true,
+        description: true, pdfUrl: true, thumbnailUrl: true, difficulty: true,
+        duration: true, totalQuestions: true, downloadCount: true, viewCount: true,
+        tags: true, isPublished: true, createdAt: true, updatedAt: true,
+        faculty: true, university: true, series: true, niveau: true, country: true,
+        importBatchId: true, prepClassId: true, prepYear: true,
+        content: true, correction: true,
+        _count: { select: { questions: true } },
+      },
+    });
+    const mapped = exams.map(({ content, correction, ...rest }) => ({
+      ...rest,
+      hasContent: content != null,
+      hasCorrection: correction != null,
+    }));
+    return {
+      exams: mapped,
+      total: mapped.length,
+      syncedAt: new Date().toISOString(),
+    };
   }
 
   async getExamHierarchy() {

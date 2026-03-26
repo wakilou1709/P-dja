@@ -3,8 +3,10 @@ import { API_URL, ROUTES } from './constants';
 
 const api = axios.create({
   baseURL: `${API_URL}/api`,
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
+    'Accept-Encoding': 'gzip, deflate, br',
   },
 });
 
@@ -16,6 +18,18 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Promise partagée pour éviter les refresh simultanés (race condition)
+// Si plusieurs requêtes reçoivent un 401 en même temps, une seule appelle /refresh
+let refreshingPromise: Promise<string> | null = null;
+
+const redirectToLogin = () => {
+  if (typeof window === 'undefined') return;
+  // Garder les données non-auth (pays sélectionné, etc.) — ne pas tout effacer
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+  window.location.href = ROUTES.LOGIN;
+};
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -25,35 +39,78 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null;
-
       if (!refreshToken) {
-        if (typeof window !== 'undefined') {
-          localStorage.clear();
-          window.location.href = ROUTES.LOGIN;
-        }
+        redirectToLogin();
         return Promise.reject(error);
       }
 
       try {
-        const { data } = await axios.post(`${API_URL}/api/auth/refresh`, { refreshToken });
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('accessToken', data.accessToken);
-          localStorage.setItem('refreshToken', data.refreshToken);
+        // Si un refresh est déjà en cours, attendre son résultat
+        if (!refreshingPromise) {
+          refreshingPromise = axios
+            .post(`${API_URL}/api/auth/refresh`, { refreshToken })
+            .then(({ data }) => {
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('accessToken', data.accessToken);
+                localStorage.setItem('refreshToken', data.refreshToken);
+              }
+              return data.accessToken;
+            })
+            .finally(() => { refreshingPromise = null; });
         }
-        originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
+
+        const newToken = await refreshingPromise;
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
         return api(originalRequest);
-      } catch (refreshError) {
-        if (typeof window !== 'undefined') {
-          localStorage.clear();
-          window.location.href = ROUTES.LOGIN;
-        }
-        return Promise.reject(refreshError);
+      } catch {
+        redirectToLogin();
+        return Promise.reject(error);
       }
     }
 
     return Promise.reject(error);
   }
 );
+
+export type AnnouncementType = 'EXAM_DATE' | 'REGISTRATION' | 'INFO' | 'ALERT';
+
+export interface Announcement {
+  id: string;
+  title: string;
+  message: string;
+  type: AnnouncementType;
+  countries: string[];
+  color: string;
+  link: string | null;
+  startDate: string;
+  endDate: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const announcementsApi = {
+  getPublic: async (country?: string) => {
+    const response = await api.get('/announcements', { params: country ? { country } : {} });
+    return response.data as Announcement[];
+  },
+  // admin
+  getAll: async () => {
+    const response = await api.get('/admin/announcements');
+    return response.data as Announcement[];
+  },
+  create: async (data: Partial<Announcement>) => {
+    const response = await api.post('/admin/announcements', data);
+    return response.data as Announcement;
+  },
+  update: async (id: string, data: Partial<Announcement>) => {
+    const response = await api.patch(`/admin/announcements/${id}`, data);
+    return response.data as Announcement;
+  },
+  delete: async (id: string) => {
+    await api.delete(`/admin/announcements/${id}`);
+  },
+};
 
 export const authApi = {
   register: async (data: any) => {
@@ -71,6 +128,10 @@ export const authApi = {
 };
 
 export const examsApi = {
+  sync: async (since?: string) => {
+    const response = await api.get('/exams/sync', { params: since ? { since } : {} });
+    return response.data as { exams: any[]; total: number; syncedAt: string };
+  },
   getAll: async (filters?: any) => {
     const response = await api.get('/exams/list', { params: filters });
     return response.data;
@@ -97,6 +158,14 @@ export const examsApi = {
   },
   getYears: async () => {
     const response = await api.get('/exams/years');
+    return response.data;
+  },
+  getPrepClasses: async () => {
+    const response = await api.get('/exams/prep-classes');
+    return response.data;
+  },
+  getPrepClassExams: async (id: string, prepYear?: number) => {
+    const response = await api.get(`/exams/prep-classes/${id}/exams`, { params: { prepYear } });
     return response.data;
   },
 };
@@ -161,9 +230,69 @@ export const adminApi = {
     });
     return response.data as { pdfUrl: string; content: any; correction: any; rawTextLength: number; isScanned: boolean };
   },
+  uploadAndCreateExam: async (file: File, country = 'BF') => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('country', country);
+    const response = await api.post('/admin/exams/upload-complete', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180000,
+    });
+    return response.data as { exam: any; hasCorrection: boolean };
+  },
   generateCorrection: async (examId: string) => {
     const response = await api.post(`/admin/exams/${examId}/generate-correction`);
     return response.data as { fullCorrection: string; sections: any[]; generatedAt: string; model: string };
+  },
+  analyzeBatch: async (files: File[], onProgress?: (loaded: number, total: number) => void) => {
+    const formData = new FormData();
+    files.forEach(f => formData.append('files', f));
+    const response = await api.post('/admin/exams/analyze-batch', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 600000,
+      onUploadProgress: onProgress ? (e) => onProgress(e.loaded, e.total ?? 1) : undefined,
+    });
+    return response.data as Array<{
+      fileName: string;
+      status: 'new' | 'duplicate' | 'similar' | 'metadata_match' | 'error';
+      duplicateOf: { id: string; title: string; type: string; year: number; university: string } | null;
+      metadata: { title: string; type: string; subject: string; year: number; series: string | null; university: string; faculty: string | null; niveau: string | null; duration: number | null };
+      content: any;
+      contentHash: string | null;
+      isScanned: boolean;
+      error?: string;
+    }>;
+  },
+  importBatch: async (items: any[], batchStats?: {
+    totalAnalyzed: number; newCount: number; similarCount: number;
+    duplicateCount: number; errorCount: number; rejectedCount: number;
+  }, country = 'BF') => {
+    const response = await api.post('/admin/exams/import-batch', { items, batchStats, country }, { timeout: 600000 });
+    return response.data as Array<{ exam: any; hasCorrection: boolean }>;
+  },
+  fixUniversity: async () => {
+    const response = await api.post('/admin/exams/fix-university');
+    return response.data as { checked: number; fixed: number };
+  },
+  fixFaculties: async () => {
+    const response = await api.post('/admin/exams/fix-faculties');
+    return response.data as { groupsMerged: number; duplicatesRemoved: number; examsUpdated: number };
+  },
+  getImportBatches: async () => {
+    const response = await api.get('/admin/exams/import-batches');
+    return response.data as {
+      batches: Array<{
+        id: string; createdAt: string;
+        totalAnalyzed: number; newCount: number; similarCount: number;
+        duplicateCount: number; errorCount: number; rejectedCount: number;
+        importedCount: number; withCorrection: number;
+      }>;
+      totals: {
+        totalAnalyzed: number; newCount: number; similarCount: number;
+        duplicateCount: number; errorCount: number; rejectedCount: number;
+        importedCount: number; withCorrection: number;
+      };
+    };
   },
 
   // Finance
@@ -201,6 +330,85 @@ export const adminApi = {
   togglePromoCode: async (id: string) => {
     const response = await api.patch(`/admin/promo/codes/${id}/toggle`);
     return response.data;
+  },
+
+  // Videos
+  videos: {
+    getAll: async (params?: any) => {
+      const response = await api.get('/admin/videos', { params });
+      return response.data;
+    },
+    getStats: async () => {
+      const response = await api.get('/admin/videos/stats');
+      return response.data;
+    },
+    create: async (data: any) => {
+      const response = await api.post('/admin/videos', data);
+      return response.data;
+    },
+    update: async (id: string, data: any) => {
+      const response = await api.patch(`/admin/videos/${id}`, data);
+      return response.data;
+    },
+    remove: async (id: string) => {
+      const response = await api.delete(`/admin/videos/${id}`);
+      return response.data;
+    },
+    getCategories: async () => {
+      const response = await api.get('/admin/videos/categories');
+      return response.data;
+    },
+    createCategory: async (data: any) => {
+      const response = await api.post('/admin/videos/categories', data);
+      return response.data;
+    },
+    updateCategory: async (id: string, data: any) => {
+      const response = await api.patch(`/admin/videos/categories/${id}`, data);
+      return response.data;
+    },
+    removeCategory: async (id: string) => {
+      const response = await api.delete(`/admin/videos/categories/${id}`);
+      return response.data;
+    },
+    uploadFile: async (file: File, onProgress?: (pct: number) => void) => {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await api.post('/admin/videos/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => {
+          if (onProgress && e.total) onProgress(Math.round((e.loaded * 100) / e.total));
+        },
+      });
+      return response.data as { url: string; filename: string; size: number };
+    },
+  },
+
+  // Classes Prépa
+  prepClasses: {
+    getAll: async () => {
+      const response = await api.get('/admin/prep-classes');
+      return response.data;
+    },
+    getById: async (id: string) => {
+      const response = await api.get(`/admin/prep-classes/${id}`);
+      return response.data;
+    },
+    create: async (data: { name: string; city: string; region?: string; description?: string }) => {
+      const response = await api.post('/admin/prep-classes', data);
+      return response.data;
+    },
+    update: async (id: string, data: { name?: string; city?: string; region?: string; description?: string }) => {
+      const response = await api.patch(`/admin/prep-classes/${id}`, data);
+      return response.data;
+    },
+    remove: async (id: string) => {
+      const response = await api.delete(`/admin/prep-classes/${id}`);
+      return response.data;
+    },
+    createExam: async (prepClassId: string, data: any) => {
+      const response = await api.post(`/admin/prep-classes/${prepClassId}/exams`, data);
+      return response.data;
+    },
   },
 
   // Questions
@@ -292,6 +500,21 @@ export const quizApi = {
   },
   getMyProgress: async () => {
     const response = await api.get('/quiz/progress');
+    return response.data;
+  },
+};
+
+export const videosApi = {
+  getCategories: async () => {
+    const response = await api.get('/videos/categories');
+    return response.data;
+  },
+  getVideos: async (params?: { categoryId?: string; search?: string; featured?: boolean }) => {
+    const response = await api.get('/videos', { params });
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/videos/${id}`);
     return response.data;
   },
 };
